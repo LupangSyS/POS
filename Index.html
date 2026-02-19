@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    /* กูใช้ Flexbox ตามที่มึงชอบเลย จัด Layout โคตรง่าย */
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f7f6; margin: 0; padding: 20px; }
+    .pos-container { display: flex; gap: 20px; max-width: 1000px; margin: auto; }
+    
+    /* ฝั่งซ้าย: ปุ่มกดสินค้า */
+    .products-panel { flex: 2; display: flex; flex-wrap: wrap; gap: 15px; align-content: flex-start; }
+    .btn-product { 
+      flex: 1 1 calc(33.333% - 15px); padding: 20px; background: #fff; 
+      border: 2px solid #ddd; border-radius: 10px; cursor: pointer; font-size: 16px; font-weight: bold;
+      transition: 0.2s;
+    }
+    .btn-product:hover { border-color: #4CAF50; background: #e8f5e9; }
+
+    /* ฝั่งขวา: ตะกร้าสินค้า */
+    .cart-panel { flex: 1; background: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+    #cartItems { list-style: none; padding: 0; margin-bottom: 20px; min-height: 150px;}
+    #cartItems li { display: flex; justify-content: space-between; border-bottom: 1px solid #eee; padding: 10px 0; }
+    .total-box { font-size: 24px; font-weight: bold; text-align: right; color: #d32f2f; margin-bottom: 20px; }
+    .btn-checkout { width: 100%; padding: 15px; background: #4CAF50; color: white; border: none; border-radius: 8px; font-size: 18px; cursor: pointer; }
+    .btn-checkout:disabled { background: #ccc; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+
+  <div class="pos-container">
+    <div class="products-panel" id="productContainer">
+      <h3 style="width: 100%; text-align: center; color: #888;">กำลังโหลดสินค้า... รอแป๊บดิวะ</h3>
+    </div>
+
+    <div class="cart-panel">
+      <h2>🛒 รายการบิล</h2>
+      <ul id="cartItems"></ul>
+      <div class="total-box">รวม: <span id="totalPrice">0</span> บาท</div>
+      <button id="checkoutBtn" class="btn-checkout" onclick="checkout()">บันทึกบิล (Checkout)</button>
+    </div>
+  </div>
+
+  <script>
+    // ใช้ Modern JS เก็บ State ของตะกร้า
+    let cart = [];
+    let total = 0;
+
+    // ฟังก์ชันเพิ่มลงตะกร้า
+    function addToCart(id, name, price) {
+      cart.push({ id: id, name: name, price: price, qty: 1, subtotal: price });
+      total += price;
+      renderCart();
+    }
+
+    // ฟังก์ชันอัปเดตหน้าจอ
+    function renderCart() {
+      const list = document.getElementById('cartItems');
+      list.innerHTML = ''; // ล้างของเก่าก่อน
+      cart.forEach(item => {
+        list.innerHTML += `<li><span>${item.name}</span> <span>${item.price} ฿</span></li>`;
+      });
+      document.getElementById('totalPrice').innerText = total;
+    }
+
+    // ฟังก์ชันส่งข้อมูลไปหา Backend (Code.gs)
+    function checkout() {
+      if(cart.length === 0) {
+        alert('ตะกร้าว่างเปล่า! เลือกของก่อนดิวะเพื่อน!');
+        return;
+      }
+
+      // จัดฟอร์แมตข้อมูลให้ตรงกับที่ Backend รับ
+      const orderData = {
+        type: "INCOME",
+        total: total,
+        method: "CASH",
+        note: "ขายหน้าร้าน",
+        items: cart.map(item => ({ id: item.id, qty: item.qty, subtotal: item.subtotal }))
+      };
+
+      // เปลี่ยนสถานะปุ่มกันคนกดเบิ้ล
+      const btn = document.getElementById('checkoutBtn');
+      btn.innerText = "กำลังบันทึกข้อมูล...";
+      btn.disabled = true;
+
+      // ⚡️ ทีเด็ดอยู่ตรงนี้: ใช้ google.script.run คุยกับ Backend แบบ Asynchronous
+      google.script.run
+        .withSuccessHandler(function(response) {
+          if(response.success) {
+            alert(response.message);
+            // เคลียร์ตะกร้าเตรียมรับลูกค้ารายต่อไป
+            cart = []; total = 0; renderCart();
+          } else {
+            alert('พังว่ะ: ' + response.message);
+          }
+          btn.innerText = "บันทึกบิล (Checkout)";
+          btn.disabled = false;
+        })
+        .saveTransaction(orderData);
+    }
+    // ฟังก์ชันนี้จะทำงานตอนที่หน้าเว็บโหลดเสร็จ
+    document.addEventListener("DOMContentLoaded", function() {
+      // เรียกฟังก์ชัน getProducts จาก Backend
+      google.script.run
+        .withSuccessHandler(renderProducts) // ถ้าดึงสำเร็จ ให้ส่งต่อดึงฟังก์ชัน renderProducts
+        .withFailureHandler(function(error) {
+           document.getElementById('productContainer').innerHTML = `<p style="color:red;">Error: ${error.message}</p>`;
+        })
+        .getProducts();
+    });
+
+    // ฟังก์ชันวาดปุ่มสินค้าลงบนหน้าจอ
+    function renderProducts(productsData) {
+      const container = document.getElementById('productContainer');
+      container.innerHTML = ''; // ล้างข้อความ Loading ออก
+      
+      if (productsData.length === 0) {
+        container.innerHTML = '<p>ไม่พบสินค้า ไปเพิ่มใน Sheet ก่อนดิ!</p>';
+        return;
+      }
+
+      // วนลูปสร้างปุ่มตามจำนวนสินค้าที่มี
+      productsData.forEach(p => {
+        // ใช้ Template Literal ของ Modern JS แบบที่มึงถนัด
+        const btnHTML = `
+          <button class="btn-product" onclick="addToCart('${p.id}', '${p.name}', ${p.price})">
+            ${p.name}<br>${p.price} ฿
+          </button>
+        `;
+        container.innerHTML += btnHTML;
+      });
+    }
+  </script>
+</body>
+</html>
